@@ -7,10 +7,10 @@
   "scan_interval": 0.4,
   "confidence": 0.82,
   "show_debug": false,
-  "enabled_templates": [
-    "capture_20260920_124339.png"
-  ],
+  "enabled_templates": null,
   "enabled_items": [
     "iron ore"
-  ]
+  ],
+  "wander_enabled": true,
+  "wander_duration": 10.0
 }

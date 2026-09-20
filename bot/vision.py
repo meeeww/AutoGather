@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
 
 import cv2
 import numpy as np
 
-from bot.config import Settings, list_template_files
+from bot.config import Settings
 from bot.dataset import iter_selected_crops
 
 
@@ -29,16 +28,9 @@ class TemplateMatcher:
         self._templates: list[tuple[str, np.ndarray]] = []
         self._signature: tuple[object, ...] | None = None
 
-    def reload_if_needed(self, settings: Settings, folder: Path, warnings: list[str]) -> None:
-        scale = settings.template_scale()
-        custom_files = [
-            path
-            for path in list_template_files(folder)
-            if settings.enabled_templates is None or path.name in settings.enabled_templates
-        ]
-        dataset_crops = iter_selected_crops(settings.enabled_items)
+    def reload_if_needed(self, settings: Settings, warnings: list[str]) -> None:
+        crops = iter_selected_crops(settings.enabled_items)
         signature = (
-            tuple((path.name, path.stat().st_mtime_ns, path.stat().st_size) for path in custom_files),
             tuple(
                 (
                     str(item["path"]),
@@ -48,34 +40,23 @@ class TemplateMatcher:
                     settings.game_width,
                     settings.game_height,
                 )
-                for item in dataset_crops
+                for item in crops
             ),
-            scale,
             tuple(settings.enabled_items or []),
         )
         if signature == self._signature:
             return
 
         self._templates = []
-        scale_x, scale_y = scale
-        for path in custom_files:
-            image = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
-            if image is None:
-                warnings.append(f"Could not load template {path.name}")
-                continue
-            scaled = _scale_gray(image, scale_x, scale_y)
-            self._templates.append((path.stem, scaled))
-
-        for item in dataset_crops:
+        for item in crops:
             image = cv2.imread(str(item["path"]), cv2.IMREAD_GRAYSCALE)
             if image is None:
                 warnings.append(f"Could not load crop {item['path'].name}")
                 continue
-            item_scale_x = settings.game_width / max(1, int(item["source_width"]))
-            item_scale_y = settings.game_height / max(1, int(item["source_height"]))
-            scaled = _scale_gray(image, item_scale_x, item_scale_y)
+            scale_x = settings.game_width / max(1, int(item["source_width"]))
+            scale_y = settings.game_height / max(1, int(item["source_height"]))
+            scaled = _scale_gray(image, scale_x, scale_y)
             self._templates.append((str(item["name"]), scaled))
-
         self._signature = signature
 
     def find_best(

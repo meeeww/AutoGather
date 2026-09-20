@@ -13,9 +13,10 @@ from mss import MSS
 from pynput import keyboard
 
 from bot.capture import grab_frame, list_monitors, monitor_label
-from bot.config import TEMPLATES_DIR, Settings, list_template_files, load_settings, save_settings
+from bot.config import CAPTURES_DIR, Settings, load_settings, save_settings
 from bot.dataset import (
     DATASET_URL,
+    add_custom_images,
     crop_counts,
     display_name,
     download_roboflow,
@@ -60,21 +61,19 @@ class App:
             self.set_status,
             on_stopped=lambda: self.root.after(0, self._on_bot_stopped),
         )
-        self._template_vars: dict[str, tk.BooleanVar] = {}
         self._item_vars: dict[str, tk.BooleanVar] = {}
         self._item_photos: list[tk.PhotoImage] = []
-        self._known_templates: set[str] = {path.name for path in list_template_files()}
+        self._known_items: set[str] = set(list_gather_classes())
         self._hotkey_listener: keyboard.Listener | None = None
 
         self._build()
         self._load_into_form(self.settings)
         self.refresh_items()
-        self.refresh_templates()
         self._bind_live_settings()
         self._start_hotkey()
         self._sync_store()
         self.set_status("Stopped")
-        self.log("Ready. Import the Roboflow dataset or add PNG templates, then press Start or F8.")
+        self.log("Ready. Import the dataset or add your own gather items, then press Start or F8.")
 
     def _build(self) -> None:
         pad = {"padx": 10, "pady": 4}
@@ -135,7 +134,7 @@ class App:
         self.confidence_label.grid(row=2, column=2, sticky="w", padx=6)
         timing.columnconfigure(1, weight=1)
 
-        ttk.Label(timing, text="Wander wait (s)").grid(row=3, column=0, sticky="w", pady=2)
+        ttk.Label(timing, text="Wander duration (s)").grid(row=3, column=0, sticky="w", pady=2)
         self.wander_wait_var = tk.StringVar()
         ttk.Entry(timing, textvariable=self.wander_wait_var, width=10).grid(row=3, column=1, sticky="w", pady=2)
 
@@ -157,8 +156,9 @@ class App:
         item_btns = ttk.Frame(items)
         item_btns.pack(fill="x", pady=(6, 4))
         ttk.Button(item_btns, text="Import dataset", command=self.open_import_dialog).pack(side="left")
-        ttk.Button(item_btns, text="All", command=lambda: self._set_all_items(True)).pack(side="left", padx=6)
-        ttk.Button(item_btns, text="None", command=lambda: self._set_all_items(False)).pack(side="left")
+        ttk.Button(item_btns, text="Add item", command=self.open_add_item_dialog).pack(side="left", padx=6)
+        ttk.Button(item_btns, text="All", command=lambda: self._set_all_items(True)).pack(side="left")
+        ttk.Button(item_btns, text="None", command=lambda: self._set_all_items(False)).pack(side="left", padx=6)
 
         items_holder = ttk.Frame(items)
         items_holder.pack(fill="both", expand=True)
@@ -178,27 +178,6 @@ class App:
         self.items_canvas.pack(side="left", fill="both", expand=True)
         items_scroll.pack(side="right", fill="y")
         self._bind_mousewheel(self.items_canvas)
-
-        templates = ttk.LabelFrame(main, text="Custom templates", padding=8)
-        templates.pack(fill="both", expand=True, **pad)
-        path_row = ttk.Frame(templates)
-        path_row.pack(fill="x")
-        ttk.Label(path_row, text=str(TEMPLATES_DIR), wraplength=360).pack(side="left", fill="x", expand=True)
-        ttk.Button(path_row, text="Refresh", command=self.refresh_templates).pack(side="right")
-
-        list_holder = ttk.Frame(templates)
-        list_holder.pack(fill="both", expand=True, pady=(6, 0))
-        self.template_canvas = tk.Canvas(list_holder, height=72, highlightthickness=0)
-        scrollbar = ttk.Scrollbar(list_holder, orient="vertical", command=self.template_canvas.yview)
-        self.template_inner = ttk.Frame(self.template_canvas)
-        self.template_inner.bind(
-            "<Configure>",
-            lambda _event: self.template_canvas.configure(scrollregion=self.template_canvas.bbox("all")),
-        )
-        self.template_canvas.create_window((0, 0), window=self.template_inner, anchor="nw")
-        self.template_canvas.configure(yscrollcommand=scrollbar.set)
-        self.template_canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
 
         buttons = ttk.Frame(main)
         buttons.pack(fill="x", **pad)
@@ -256,7 +235,7 @@ class App:
         self.confidence_label.configure(text=f"{settings.confidence:.2f}")
         self.debug_var.set(settings.show_debug)
         self.wander_var.set(settings.wander_enabled)
-        self.wander_wait_var.set(str(settings.wander_interval))
+        self.wander_wait_var.set(str(settings.wander_duration))
 
     def refresh_items(self) -> None:
         for child in self.items_inner.winfo_children():
@@ -270,23 +249,33 @@ class App:
         for class_name in classes:
             enabled = previous.get(class_name)
             if enabled is None:
-                enabled = True if saved is None else class_name in saved
+                if saved is None or class_name in saved or class_name not in self._known_items:
+                    enabled = True
+                else:
+                    enabled = False
             var = tk.BooleanVar(value=enabled)
             self._item_vars[class_name] = var
             count = counts.get(class_name, 0)
             row = ttk.Frame(self.items_inner)
             row.pack(fill="x", pady=(0, 8), padx=2)
+            header = ttk.Frame(row)
+            header.pack(fill="x")
             ttk.Checkbutton(
-                row,
+                header,
                 text=f"{display_name(class_name)} ({count})",
                 variable=var,
                 command=self._sync_store,
-            ).pack(anchor="w")
+            ).pack(side="left")
+            ttk.Button(
+                header,
+                text="Add photos",
+                command=lambda n=class_name: self.open_add_item_dialog(n),
+            ).pack(side="left", padx=8)
             thumbs = ttk.Frame(row)
             thumbs.pack(anchor="w", pady=(4, 0))
             paths = list_class_crop_paths(class_name)
             if not paths:
-                ttk.Label(thumbs, text="No images yet. Import the dataset to see crops.").pack(anchor="w")
+                ttk.Label(thumbs, text="No images yet. Import the dataset or add photos.").pack(anchor="w")
                 continue
             for path in paths:
                 photo = self._thumb_photo(path, 64)
@@ -303,10 +292,11 @@ class App:
             )
         else:
             self.items_status.configure(
-                text="Import Roboflow AlbionGathering v4 to see gather images."
+                text="Import the dataset or add your own item photos to get started."
             )
         self.items_inner.update_idletasks()
         self.items_canvas.configure(scrollregion=self.items_canvas.bbox("all"))
+        self._known_items = set(classes)
 
     def _thumb_photo(self, path: Path, size: int) -> tk.PhotoImage | None:
         image = cv2.imread(str(path))
@@ -368,51 +358,19 @@ class App:
     def enabled_item_names(self) -> list[str]:
         return [name for name, var in self._item_vars.items() if var.get()]
 
-    def refresh_templates(self) -> None:
-        for child in self.template_inner.winfo_children():
-            child.destroy()
-        previous = {name: var.get() for name, var in self._template_vars.items()}
-        saved = self.settings.enabled_templates
-        self._template_vars = {}
-        files = list_template_files()
-        if not files:
-            ttk.Label(self.template_inner, text="No images yet. Add PNGs or save a screenshot.").pack(anchor="w")
-            return
-        for path in files:
-            enabled = previous.get(path.name)
-            if enabled is None:
-                if saved is None or path.name in saved or path.name not in self._known_templates:
-                    enabled = True
-                else:
-                    enabled = False
-            var = tk.BooleanVar(value=enabled)
-            self._template_vars[path.name] = var
-            ttk.Checkbutton(
-                self.template_inner,
-                text=path.name,
-                variable=var,
-                command=self._sync_store,
-            ).pack(anchor="w")
-        self._known_templates = {path.name for path in files}
-
-    def enabled_template_names(self) -> list[str] | None:
-        if not self._template_vars:
-            return []
-        return [name for name, var in self._template_vars.items() if var.get()]
-
     def read_form(self) -> Settings:
         try:
             game_width = int(self.width_var.get().strip())
             game_height = int(self.height_var.get().strip())
             wait_between = float(self.wait_var.get().strip())
             scan_interval = float(self.scan_var.get().strip())
-            wander_interval = float(self.wander_wait_var.get().strip())
+            wander_duration = float(self.wander_wait_var.get().strip())
         except ValueError as exc:
             raise ValueError("Resolution, wait time, and scan interval must be numbers.") from exc
         if game_width < 1 or game_height < 1:
             raise ValueError("Game resolution must be at least 1x1.")
-        if wait_between <= 0 or scan_interval <= 0 or wander_interval <= 0:
-            raise ValueError("Wait, scan, and wander intervals must be greater than 0.")
+        if wait_between <= 0 or scan_interval <= 0 or wander_duration <= 0:
+            raise ValueError("Wait, scan, and wander duration must be greater than 0.")
         confidence = float(self.confidence_var.get())
         if not 0.0 <= confidence <= 1.0:
             raise ValueError("Confidence must be between 0 and 1.")
@@ -428,10 +386,9 @@ class App:
             scan_interval=scan_interval,
             confidence=confidence,
             show_debug=bool(self.debug_var.get()),
-            enabled_templates=self.enabled_template_names(),
             enabled_items=self.enabled_item_names(),
             wander_enabled=bool(self.wander_var.get()),
-            wander_interval=wander_interval,
+            wander_duration=wander_duration,
         )
 
     def apply_settings(self, persist: bool = True) -> Settings:
@@ -471,20 +428,19 @@ class App:
         except ValueError as exc:
             messagebox.showerror("Invalid settings", str(exc), parent=self.root)
             return
-        enabled_templates = settings.enabled_templates or []
         enabled_items = settings.enabled_items or []
         dataset_ready = sum(crop_counts().get(name, 0) for name in enabled_items)
-        if not enabled_templates and dataset_ready == 0:
+        if dataset_ready == 0:
             if enabled_items:
                 messagebox.showerror(
-                    "Dataset not imported",
-                    "Selected items have no crops yet. Import the Roboflow dataset first.",
+                    "No images",
+                    "Selected items have no photos yet. Import the dataset or add photos.",
                     parent=self.root,
                 )
             else:
                 messagebox.showerror(
                     "Nothing selected",
-                    "Select at least one gather item, or enable a custom template.",
+                    "Select at least one gather item.",
                     parent=self.root,
                 )
             return
@@ -504,6 +460,58 @@ class App:
             self.stop_bot()
         else:
             self.start_bot()
+
+    def open_add_item_dialog(self, item_name: str = "") -> None:
+        win = tk.Toplevel(self.root)
+        win.title("Add gather item")
+        win.attributes("-topmost", True)
+        win.resizable(False, False)
+        frame = ttk.Frame(win, padding=12)
+        frame.pack(fill="both", expand=True)
+        ttk.Label(
+            frame,
+            wraplength=400,
+            text="Give the item a name, then upload cropped photos of it. Use tight crops of the node, not the whole screen.",
+        ).pack(anchor="w")
+        ttk.Label(frame, text="Item name").pack(anchor="w", pady=(10, 2))
+        name_var = tk.StringVar(value=item_name)
+        name_entry = ttk.Entry(frame, textvariable=name_var, width=40)
+        name_entry.pack(anchor="w")
+        if item_name:
+            name_entry.configure(state="readonly")
+
+        def add_files() -> None:
+            paths = filedialog.askopenfilenames(
+                parent=win,
+                title="Choose item photos",
+                filetypes=[
+                    ("Images", "*.png *.jpg *.jpeg *.bmp *.webp"),
+                    ("All files", "*.*"),
+                ],
+            )
+            if not paths:
+                return
+            name = name_var.get().strip()
+            try:
+                settings = self.read_form()
+                added = add_custom_images(
+                    name,
+                    [Path(path) for path in paths],
+                    settings.game_width,
+                    settings.game_height,
+                )
+            except ValueError as exc:
+                messagebox.showerror("Could not add photos", str(exc), parent=win)
+                return
+            key = name.strip().lower()
+            self.refresh_items()
+            if key in self._item_vars:
+                self._item_vars[key].set(True)
+            self._sync_store()
+            self.log(f"Added {added} photo(s) to {display_name(key)}")
+            win.destroy()
+
+        ttk.Button(frame, text="Choose photos...", command=add_files).pack(anchor="w", pady=(12, 0))
 
     def open_import_dialog(self) -> None:
         win = tk.Toplevel(self.root)
@@ -623,9 +631,9 @@ class App:
         except ValueError as exc:
             messagebox.showerror("Invalid settings", str(exc), parent=self.root)
             return
-        TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
+        CAPTURES_DIR.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output = TEMPLATES_DIR / f"capture_{stamp}.png"
+        output = CAPTURES_DIR / f"capture_{stamp}.png"
         with MSS() as sct:
             frame, region = grab_frame(
                 sct,
@@ -637,9 +645,7 @@ class App:
         if not cv2.imwrite(str(output), frame):
             messagebox.showerror("Save failed", f"Could not write {output}", parent=self.root)
             return
-        self.refresh_templates()
-        self._sync_store()
-        self.log(f"Saved {output.name} ({region['width']}x{region['height']})")
+        self.log(f"Saved {output} — crop it, then Add item / Add photos")
 
     def log(self, message: str) -> None:
         def append() -> None:

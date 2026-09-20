@@ -21,6 +21,8 @@ DATASET_DIR = ROOT_DIR / "dataset"
 YOLO_DIR = DATASET_DIR / "yolo"
 CROPS_DIR = DATASET_DIR / "crops"
 MANIFEST_PATH = DATASET_DIR / "manifest.json"
+CUSTOM_DIR = ROOT_DIR / "custom_items"
+CUSTOM_MANIFEST_PATH = CUSTOM_DIR / "manifest.json"
 
 SKIP_CLASSES = {"monster"}
 GATHER_CLASSES = [
@@ -281,45 +283,118 @@ def load_manifest() -> dict[str, Any]:
 
 
 def crop_counts() -> dict[str, int]:
-    classes = load_manifest().get("classes", {})
-    return {name: len(entries) for name, entries in classes.items()}
+    counts: dict[str, int] = {}
+    for source in (load_manifest(), load_custom_manifest()):
+        for name, entries in source.get("classes", {}).items():
+            counts[name] = counts.get(name, 0) + len(entries)
+    return counts
 
 
 def list_class_crop_paths(class_name: str) -> list[Path]:
-    entries = load_manifest().get("classes", {}).get(class_name, [])
     paths: list[Path] = []
-    for entry in entries:
-        path = CROPS_DIR / entry["file"]
-        if path.exists():
-            paths.append(path)
+    for manifest, root in (
+        (load_manifest(), CROPS_DIR),
+        (load_custom_manifest(), CUSTOM_DIR),
+    ):
+        for entry in manifest.get("classes", {}).get(class_name, []):
+            path = root / entry["file"]
+            if path.exists():
+                paths.append(path)
     return paths
 
 
 def list_gather_classes() -> list[str]:
     names = list(GATHER_CLASSES)
-    for name in load_manifest().get("classes", {}):
-        if name not in names and name not in SKIP_CLASSES:
-            names.append(name)
+    for source in (load_manifest(), load_custom_manifest()):
+        for name in source.get("classes", {}):
+            if name not in names and name not in SKIP_CLASSES:
+                names.append(name)
     return names
 
 
+def is_custom_item(class_name: str) -> bool:
+    return class_name in load_custom_manifest().get("classes", {})
+
+
 def iter_selected_crops(enabled_items: list[str] | None) -> list[dict[str, Any]]:
-    classes = load_manifest().get("classes", {})
-    selected = set(enabled_items) if enabled_items is not None else set(classes)
     results: list[dict[str, Any]] = []
-    for class_name, entries in classes.items():
-        if class_name not in selected:
-            continue
-        for entry in entries:
-            path = CROPS_DIR / entry["file"]
-            if not path.exists():
+    for manifest, root, default_w, default_h in (
+        (load_manifest(), CROPS_DIR, 1920, 1080),
+        (load_custom_manifest(), CUSTOM_DIR, 1920, 1080),
+    ):
+        classes = manifest.get("classes", {})
+        selected = set(enabled_items) if enabled_items is not None else set(classes)
+        for class_name, entries in classes.items():
+            if class_name not in selected:
                 continue
-            results.append(
-                {
-                    "name": class_name,
-                    "path": path,
-                    "source_width": int(entry.get("source_width", 1920)),
-                    "source_height": int(entry.get("source_height", 1080)),
-                }
-            )
+            for entry in entries:
+                path = root / entry["file"]
+                if not path.exists():
+                    continue
+                results.append(
+                    {
+                        "name": class_name,
+                        "path": path,
+                        "source_width": int(entry.get("source_width", default_w)),
+                        "source_height": int(entry.get("source_height", default_h)),
+                    }
+                )
     return results
+
+
+def load_custom_manifest() -> dict[str, Any]:
+    if not CUSTOM_MANIFEST_PATH.exists():
+        return {"classes": {}}
+    with CUSTOM_MANIFEST_PATH.open("r", encoding="utf-8") as handle:
+        data = json.load(handle)
+    data.setdefault("classes", {})
+    return data
+
+
+def save_custom_manifest(data: dict[str, Any]) -> None:
+    CUSTOM_DIR.mkdir(parents=True, exist_ok=True)
+    with CUSTOM_MANIFEST_PATH.open("w", encoding="utf-8") as handle:
+        json.dump(data, handle, indent=2)
+        handle.write("\n")
+
+
+def add_custom_images(
+    class_name: str,
+    image_paths: list[Path],
+    source_width: int,
+    source_height: int,
+) -> int:
+    name = class_name.strip().lower()
+    if not name:
+        raise ValueError("Item name cannot be empty.")
+    if name in SKIP_CLASSES:
+        raise ValueError("That class is reserved.")
+    slug = class_slug(name)
+    class_dir = CUSTOM_DIR / slug
+    class_dir.mkdir(parents=True, exist_ok=True)
+    manifest = load_custom_manifest()
+    entries = list(manifest.setdefault("classes", {}).get(name, []))
+    added = 0
+    next_index = len(entries) + 1
+    for image_path in image_paths:
+        image = cv2.imread(str(image_path))
+        if image is None:
+            continue
+        filename = f"{slug}_{next_index:02d}.png"
+        output = class_dir / filename
+        if not cv2.imwrite(str(output), image):
+            continue
+        entries.append(
+            {
+                "file": f"{slug}/{filename}",
+                "source_width": int(source_width),
+                "source_height": int(source_height),
+            }
+        )
+        next_index += 1
+        added += 1
+    if added == 0:
+        raise ValueError("Could not read any of the selected images.")
+    manifest["classes"][name] = entries
+    save_custom_manifest(manifest)
+    return added

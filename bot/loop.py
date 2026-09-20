@@ -3,14 +3,13 @@ from __future__ import annotations
 import threading
 import time
 from collections.abc import Callable
-from pathlib import Path
 
 import cv2
 from mss import MSS
 
 from bot.capture import grab_frame
-from bot.clicker import click_screen, wander_click
-from bot.config import TEMPLATES_DIR, Settings
+from bot.clicker import WANDER_RECAST, click_screen, wander_click_forward
+from bot.config import Settings
 from bot.vision import TemplateMatcher, draw_debug
 
 LogFn = Callable[[str], None]
@@ -26,14 +25,12 @@ class BotLoop:
         get_settings: SettingsFn,
         log: LogFn,
         status: StatusFn,
-        templates_dir: Path = TEMPLATES_DIR,
         on_stopped: StoppedFn | None = None,
     ) -> None:
         self._get_settings = get_settings
         self._log = log
         self._status = status
         self._on_stopped = on_stopped
-        self._templates_dir = templates_dir
         self._running = threading.Event()
         self._wakeup = threading.Event()
         self._thread: threading.Thread | None = None
@@ -77,14 +74,15 @@ class BotLoop:
         self._log("Bot started")
         last_skip_log = 0.0
         debug_open = False
-        wander_step = 0
-        last_wander = 0.0
+        wander_until = 0.0
+        last_wander_click = 0.0
+        zigzag_step = 0
         try:
             with MSS() as sct:
                 while self._running.is_set():
                     settings = self._get_settings()
                     warnings: list[str] = []
-                    self._matcher.reload_if_needed(settings, self._templates_dir, warnings)
+                    self._matcher.reload_if_needed(settings, warnings)
                     for warning in warnings:
                         now = time.monotonic()
                         if now - last_skip_log >= 2.0:
@@ -117,19 +115,33 @@ class BotLoop:
                         debug_open = False
 
                     if match is None:
+                        now = time.monotonic()
                         if settings.wander_enabled:
-                            now = time.monotonic()
-                            if now - last_wander >= settings.wander_interval:
-                                clicked_x, clicked_y = wander_click(region, wander_step)
-                                wander_step += 1
-                                last_wander = now
+                            if wander_until <= now:
+                                wander_until = now + settings.wander_duration
+                                zigzag_step = 0
+                                clicked_x, clicked_y = wander_click_forward(region, zigzag_step)
+                                zigzag_step += 1
+                                last_wander_click = now
                                 self._status("Wandering")
-                                self._log(f"No materials found, wandering -> click ({clicked_x}, {clicked_y})")
-                                self._sleep(settings.wander_interval)
-                                continue
+                                self._log(
+                                    f"No materials found, walking forward for {settings.wander_duration:.0f}s "
+                                    f"-> click ({clicked_x}, {clicked_y})"
+                                )
+                            elif now - last_wander_click >= WANDER_RECAST:
+                                clicked_x, clicked_y = wander_click_forward(region, zigzag_step)
+                                zigzag_step += 1
+                                last_wander_click = now
+                                self._status("Wandering")
+                            else:
+                                self._status("Wandering")
+                            self._sleep(settings.scan_interval)
+                            continue
                         self._status("Scanning")
                         self._sleep(settings.scan_interval)
                         continue
+
+                    wander_until = 0.0
 
                     rel_x, rel_y = match.center
                     screen_x = region["left"] + rel_x

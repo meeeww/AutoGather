@@ -9,6 +9,7 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 CONFIG_PATH = ROOT_DIR / "config.json"
 SECRETS_PATH = ROOT_DIR / "secrets.json"
 TEMPLATES_DIR = ROOT_DIR / "templates"
+CAPTURES_DIR = ROOT_DIR / "captures"
 
 TEMPLATE_BASE_WIDTH = 1920
 TEMPLATE_BASE_HEIGHT = 1080
@@ -28,7 +29,7 @@ class Settings:
     enabled_templates: list[str] | None = field(default=None)
     enabled_items: list[str] | None = field(default=None)
     wander_enabled: bool = True
-    wander_interval: float = 2.5
+    wander_duration: float = 10.0
 
     def template_scale(self) -> tuple[float, float]:
         return (
@@ -48,6 +49,8 @@ def load_settings(path: Path = CONFIG_PATH) -> Settings:
         return settings
     with path.open("r", encoding="utf-8") as handle:
         data: dict[str, Any] = json.load(handle)
+    if "wander_duration" not in data and "wander_interval" in data:
+        data["wander_duration"] = data["wander_interval"]
     defaults = asdict(default_settings())
     defaults.update({key: value for key, value in data.items() if key in defaults})
     return Settings(**defaults)
