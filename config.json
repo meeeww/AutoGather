@@ -1,0 +1,16 @@
+{
+  "monitor": 1,
+  "game_width": 1920,
+  "game_height": 1080,
+  "capture_anchor": "center",
+  "wait_between_clicks": 1.5,
+  "scan_interval": 0.4,
+  "confidence": 0.82,
+  "show_debug": false,
+  "enabled_templates": [
+    "capture_20260920_124339.png"
+  ],
+  "enabled_items": [
+    "iron ore"
+  ]
+}
