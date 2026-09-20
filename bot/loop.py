@@ -108,7 +108,7 @@ class BotLoop:
                         if not debug_open:
                             cv2.namedWindow(DEBUG_WINDOW, cv2.WINDOW_NORMAL)
                             debug_open = True
-                        cv2.imshow(DEBUG_WINDOW, draw_debug(frame, match))
+                        cv2.imshow(DEBUG_WINDOW, draw_debug(frame, match, self._matcher.last_probe))
                         cv2.waitKey(1)
                     elif debug_open:
                         self._close_debug()

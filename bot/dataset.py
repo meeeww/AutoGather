@@ -317,15 +317,18 @@ def is_custom_item(class_name: str) -> bool:
 
 
 def iter_selected_crops(enabled_items: list[str] | None) -> list[dict[str, Any]]:
+    custom_manifest = load_custom_manifest()
+    dataset_manifest = load_manifest()
+    custom_classes = set(custom_manifest.get("classes", {}))
     results: list[dict[str, Any]] = []
-    for manifest, root, default_w, default_h in (
-        (load_manifest(), CROPS_DIR, 1920, 1080),
-        (load_custom_manifest(), CUSTOM_DIR, 1920, 1080),
-    ):
+
+    def append_from(manifest: dict[str, Any], root: Path, custom: bool, skip: set[str] | None = None) -> None:
         classes = manifest.get("classes", {})
         selected = set(enabled_items) if enabled_items is not None else set(classes)
         for class_name, entries in classes.items():
             if class_name not in selected:
+                continue
+            if skip and class_name in skip:
                 continue
             for entry in entries:
                 path = root / entry["file"]
@@ -335,10 +338,15 @@ def iter_selected_crops(enabled_items: list[str] | None) -> list[dict[str, Any]]
                     {
                         "name": class_name,
                         "path": path,
-                        "source_width": int(entry.get("source_width", default_w)),
-                        "source_height": int(entry.get("source_height", default_h)),
+                        "source_width": int(entry.get("source_width", 1920)),
+                        "source_height": int(entry.get("source_height", 1080)),
+                        "custom": custom,
                     }
                 )
+
+    # User photos override Roboflow crops for the same item.
+    append_from(dataset_manifest, CROPS_DIR, custom=False, skip=custom_classes)
+    append_from(custom_manifest, CUSTOM_DIR, custom=True)
     return results
 
 
