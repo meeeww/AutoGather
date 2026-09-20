@@ -22,7 +22,7 @@ class Settings:
     game_width: int = 1920
     game_height: int = 1080
     capture_anchor: str = "center"
-    wait_between_clicks: float = 1.5
+    wait_between_clicks: float = 8.0
     scan_interval: float = 0.4
     confidence: float = 0.82
     show_debug: bool = False

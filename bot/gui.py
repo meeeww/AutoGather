@@ -112,7 +112,7 @@ class App:
         timing = ttk.LabelFrame(main, text="Timing", padding=8)
         timing.pack(fill="x", **pad)
 
-        ttk.Label(timing, text="Wait between clicks (s)").grid(row=0, column=0, sticky="w", pady=2)
+        ttk.Label(timing, text="Farm wait (s)").grid(row=0, column=0, sticky="w", pady=2)
         self.wait_var = tk.StringVar()
         ttk.Entry(timing, textvariable=self.wait_var, width=10).grid(row=0, column=1, sticky="w", pady=2)
 

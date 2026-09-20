@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import math
 import random
 import time
 
 from pynput.mouse import Button, Controller
 
 _mouse = Controller()
-WANDER_RECAST = 1.2
+WANDER_RECAST = 2.2
 
 
 def click_screen(x: int, y: int, jitter: int = 3) -> tuple[int, int]:
@@ -35,15 +34,12 @@ def _clamp_playable(region: dict[str, int], x: int, y: int) -> tuple[int, int]:
 
 
 def wander_click_forward(region: dict[str, int], zigzag_step: int) -> tuple[int, int]:
-    """Click ahead of the character (screen-up) with a small left/right zigzag."""
+    """Click far ahead of the character (near the top of the view) with a small zigzag."""
     width = max(1, int(region["width"]))
     height = max(1, int(region["height"]))
     center_x = int(region["left"]) + width // 2
-    center_y = int(region["top"]) + int(height * 0.52)
     side = -1 if zigzag_step % 2 == 0 else 1
-    angle = -math.pi / 2 + side * 0.22
-    radius = height * 0.28
-    x = int(center_x + math.cos(angle) * radius)
-    y = int(center_y + math.sin(angle) * radius)
+    x = int(center_x + side * width * 0.10)
+    y = int(region["top"] + height * 0.12)
     x, y = _clamp_playable(region, x, y)
-    return click_screen(x, y, jitter=6)
+    return click_screen(x, y, jitter=10)

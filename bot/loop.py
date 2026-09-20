@@ -145,14 +145,18 @@ class BotLoop:
                         continue
 
                     wander_until = 0.0
+                    last_wander_click = 0.0
 
-                    rel_x, rel_y = match.center
+                    # Click the lower part of the node so the character walks to it.
+                    rel_x = match.x + match.width // 2
+                    rel_y = match.y + int(match.height * 0.68)
                     screen_x = region["left"] + rel_x
                     screen_y = region["top"] + rel_y
                     clicked_x, clicked_y = click_screen(screen_x, screen_y)
-                    self._status("Clicked")
+                    self._status("Farming")
                     self._log(
-                        f"Matched {match.name} ({match.confidence:.2f}) -> click ({clicked_x}, {clicked_y})"
+                        f"Farming {match.name} ({match.confidence:.2f}) at ({clicked_x}, {clicked_y}) "
+                        f"for {settings.wait_between_clicks:.0f}s"
                     )
                     self._sleep(settings.wait_between_clicks)
         except Exception as exc:
