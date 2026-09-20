@@ -449,11 +449,17 @@ class App:
         self.stop_btn.configure(state="normal")
 
     def stop_bot(self) -> None:
-        if self.bot.running:
-            self.bot.stop()
-        self.start_btn.configure(state="normal")
-        self.stop_btn.configure(state="disabled")
-        self.set_status("Stopped")
+        try:
+            if self.bot.running:
+                self.bot.stop()
+        except Exception as exc:
+            self.log(f"Stop failed: {exc}")
+        try:
+            self.start_btn.configure(state="normal")
+            self.stop_btn.configure(state="disabled")
+            self.status_var.set("Stopped")
+        except tk.TclError:
+            return
 
     def toggle_bot(self) -> None:
         if self.bot.running:

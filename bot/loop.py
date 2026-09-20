@@ -53,9 +53,8 @@ class BotLoop:
         self._wakeup.set()
         thread = self._thread
         if thread is not None and thread is not threading.current_thread():
-            thread.join(timeout=2.0)
+            thread.join(timeout=5.0)
         self._thread = None
-        self._close_debug()
         self._status("Stopped")
 
     def _sleep(self, seconds: float) -> None:
@@ -98,12 +97,16 @@ class BotLoop:
                     )
                     match_warnings: list[str] = []
                     match = self._matcher.find_best(frame, settings.confidence, match_warnings)
+                    if not self._running.is_set():
+                        break
                     for warning in match_warnings:
                         now = time.monotonic()
                         if now - last_skip_log >= 2.0:
                             self._log(warning)
                             last_skip_log = now
 
+                    if not self._running.is_set():
+                        break
                     if settings.show_debug:
                         if not debug_open:
                             cv2.namedWindow(DEBUG_WINDOW, cv2.WINDOW_NORMAL)
@@ -167,10 +170,9 @@ class BotLoop:
     def _close_debug() -> None:
         try:
             cv2.destroyWindow(DEBUG_WINDOW)
-            cv2.waitKey(1)
-        except cv2.error:
+        except Exception:
             pass
         try:
             cv2.destroyAllWindows()
-        except cv2.error:
+        except Exception:
             pass
