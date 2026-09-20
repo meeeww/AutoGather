@@ -9,7 +9,7 @@ import cv2
 from mss import MSS
 
 from bot.capture import grab_frame
-from bot.clicker import click_screen
+from bot.clicker import click_screen, wander_click
 from bot.config import TEMPLATES_DIR, Settings
 from bot.vision import TemplateMatcher, draw_debug
 
@@ -77,6 +77,8 @@ class BotLoop:
         self._log("Bot started")
         last_skip_log = 0.0
         debug_open = False
+        wander_step = 0
+        last_wander = 0.0
         try:
             with MSS() as sct:
                 while self._running.is_set():
@@ -115,6 +117,16 @@ class BotLoop:
                         debug_open = False
 
                     if match is None:
+                        if settings.wander_enabled:
+                            now = time.monotonic()
+                            if now - last_wander >= settings.wander_interval:
+                                clicked_x, clicked_y = wander_click(region, wander_step)
+                                wander_step += 1
+                                last_wander = now
+                                self._status("Wandering")
+                                self._log(f"No materials found, wandering -> click ({clicked_x}, {clicked_y})")
+                                self._sleep(settings.wander_interval)
+                                continue
                         self._status("Scanning")
                         self._sleep(settings.scan_interval)
                         continue

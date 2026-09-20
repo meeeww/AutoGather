@@ -135,8 +135,20 @@ class App:
         self.confidence_label.grid(row=2, column=2, sticky="w", padx=6)
         timing.columnconfigure(1, weight=1)
 
+        ttk.Label(timing, text="Wander wait (s)").grid(row=3, column=0, sticky="w", pady=2)
+        self.wander_wait_var = tk.StringVar()
+        ttk.Entry(timing, textvariable=self.wander_wait_var, width=10).grid(row=3, column=1, sticky="w", pady=2)
+
         self.debug_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(main, text="Show debug window", variable=self.debug_var).pack(anchor="w", **pad)
+        self.wander_var = tk.BooleanVar(value=True)
+        flags = ttk.Frame(main)
+        flags.pack(fill="x", **pad)
+        ttk.Checkbutton(flags, text="Show debug window", variable=self.debug_var).pack(side="left")
+        ttk.Checkbutton(
+            flags,
+            text="Wander when nothing is found",
+            variable=self.wander_var,
+        ).pack(side="left", padx=(16, 0))
 
         items = ttk.LabelFrame(main, text="Items to gather", padding=8)
         items.pack(fill="both", expand=True, **pad)
@@ -243,6 +255,8 @@ class App:
         self.confidence_var.set(settings.confidence)
         self.confidence_label.configure(text=f"{settings.confidence:.2f}")
         self.debug_var.set(settings.show_debug)
+        self.wander_var.set(settings.wander_enabled)
+        self.wander_wait_var.set(str(settings.wander_interval))
 
     def refresh_items(self) -> None:
         for child in self.items_inner.winfo_children():
@@ -392,12 +406,13 @@ class App:
             game_height = int(self.height_var.get().strip())
             wait_between = float(self.wait_var.get().strip())
             scan_interval = float(self.scan_var.get().strip())
+            wander_interval = float(self.wander_wait_var.get().strip())
         except ValueError as exc:
             raise ValueError("Resolution, wait time, and scan interval must be numbers.") from exc
         if game_width < 1 or game_height < 1:
             raise ValueError("Game resolution must be at least 1x1.")
-        if wait_between <= 0 or scan_interval <= 0:
-            raise ValueError("Wait and scan intervals must be greater than 0.")
+        if wait_between <= 0 or scan_interval <= 0 or wander_interval <= 0:
+            raise ValueError("Wait, scan, and wander intervals must be greater than 0.")
         confidence = float(self.confidence_var.get())
         if not 0.0 <= confidence <= 1.0:
             raise ValueError("Confidence must be between 0 and 1.")
@@ -415,6 +430,8 @@ class App:
             show_debug=bool(self.debug_var.get()),
             enabled_templates=self.enabled_template_names(),
             enabled_items=self.enabled_item_names(),
+            wander_enabled=bool(self.wander_var.get()),
+            wander_interval=wander_interval,
         )
 
     def apply_settings(self, persist: bool = True) -> Settings:
@@ -435,6 +452,8 @@ class App:
             self.scan_var,
             self.confidence_var,
             self.debug_var,
+            self.wander_var,
+            self.wander_wait_var,
         ):
             variable.trace_add("write", lambda *_args: self._sync_store())
 

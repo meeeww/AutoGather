@@ -27,6 +27,8 @@ class Settings:
     show_debug: bool = False
     enabled_templates: list[str] | None = field(default=None)
     enabled_items: list[str] | None = field(default=None)
+    wander_enabled: bool = True
+    wander_interval: float = 2.5
 
     def template_scale(self) -> tuple[float, float]:
         return (
